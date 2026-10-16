@@ -1,0 +1,75 @@
+{
+  "title": {
+    "en": "My study",
+    "tr": "Çalışma odam"
+  },
+  "floorY": 0,
+  "eyeHeight": 1.56,
+  "splat": {
+    "url": "media/room-mesh.glb",
+    "lod": true,
+    "position": [
+      0,
+      -0.02,
+      0
+    ],
+    "rotationDeg": [
+      0,
+      0,
+      0
+    ],
+    "scale": 1
+  },
+  "start": {
+    "position": [
+      0,
+      0,
+      0
+    ],
+    "yawDeg": 0
+  },
+  "hotspots": [
+    {
+      "id": "study",
+      "title": {
+        "en": "My study",
+        "tr": "Çalışma odam"
+      },
+      "layer": {
+        "en": "Demo",
+        "tr": "Deneme"
+      },
+      "recordedAt": "2026-10-16",
+      "author": "Erdem Yıldırım",
+      "position": [
+        0.573,
+        0.02,
+        0.784
+      ],
+      "yawDeg": -3.5,
+      "lensHeight": 1.56,
+      "video": {
+        "sources": [
+          {
+            "src": "media/study-4k.mp4",
+            "type": "video/mp4; codecs=\"avc1.640034\""
+          }
+        ],
+        "projection": 180,
+        "stereo": "sbs",
+        "loop": false
+      },
+      "audio": {
+        "src": "media/study-ambix.wav",
+        "format": "ambix",
+        "channelMap": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "gain": 1.0
+      }
+    }
+  ]
+}

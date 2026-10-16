@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Memory Windows</title>
+  <meta name="description" content="Walk through a Gaussian-splat model and step into VR180 recordings with ambisonic sound made at the same spot." />
+  <style>
+    :root {
+      --bg: #07080b;
+      --ink: #f2efe8;
+      --muted: #a4a8b3;
+      --line: rgba(255, 255, 255, 0.12);
+      --panel: rgba(13, 15, 21, 0.78);
+      --accent: #f0b84a;
+      --accent-ink: #1b1305;
+      --radius: 14px;
+      --font: system-ui, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 15px/1.45 var(--font); overflow: hidden; }
+    #stage, #stage canvas { position: fixed; inset: 0; display: block; touch-action: none; }
+
+    .chrome { position: fixed; z-index: 5; pointer-events: none; }
+    .chrome > * { pointer-events: auto; }
+    .glass { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+
+    #brand { top: 16px; left: 16px; max-width: min(460px, calc(100vw - 32px)); padding: 14px 18px 14px 20px; }
+    #brand .name { font-weight: 700; letter-spacing: 0.02em; }
+    #brand .site { color: var(--muted); }
+    #mode { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); display: grid; gap: 2px; }
+    #modeKicker { font-size: 12px; font-weight: 700; letter-spacing: 0.14em; color: var(--accent); }
+    body[data-mode="record"] #modeKicker::before { content: "● "; color: #ff5a4f; }
+    #modeSub { color: var(--muted); font-size: 13px; }
+
+    #help { bottom: 16px; left: 16px; max-width: min(620px, calc(100vw - 32px)); padding: 10px 14px; color: var(--muted); font-size: 13px; }
+    #actions { bottom: 16px; right: 16px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    button { font: 600 14px/1 var(--font); color: var(--ink); background: rgba(255,255,255,0.08); border: 1px solid var(--line); border-radius: 999px; padding: 11px 16px; cursor: pointer; }
+    button:hover { background: rgba(255,255,255,0.16); }
+    button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+    button.primary:hover { filter: brightness(1.08); }
+    button[hidden] { display: none; }
+    #backBtn { display: none; }
+    body[data-mode="record"] #backBtn { display: inline-block; }
+    #phones { top: 16px; right: 16px; max-width: 280px; padding: 10px 14px; font-size: 13px; color: var(--muted); }
+    body.in-xr .chrome:not(#actions) { opacity: 0.4; }
+    body.in-xr #editBtn { display: none; }
+
+    #loading { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: var(--bg); transition: opacity .5s ease; }
+    #loading.done { opacity: 0; pointer-events: none; }
+    #loading .box { width: min(420px, calc(100vw - 48px)); text-align: center; }
+    #loading .title { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+    #loading .track { height: 4px; border-radius: 4px; background: rgba(255,255,255,0.1); overflow: hidden; margin: 18px 0 10px; }
+    #loadingBar { height: 100%; width: 0; background: var(--accent); transition: width .2s ease; }
+    #loadingMsg { color: var(--muted); font-size: 14px; }
+    #loading.error #loadingMsg { color: #ff8a80; }
+    #loadLang { position: absolute; top: 16px; right: 16px; }
+    #chooser { display: grid; gap: 12px; margin-top: 20px; }
+    #chooser h2 { margin: 0 0 4px; font-size: 16px; font-weight: 600; color: var(--muted); }
+    #chooser button { text-align: left; padding: 16px 18px; border-radius: var(--radius); display: grid; gap: 4px; }
+    #chooser button b { font-size: 16px; }
+    #chooser button span { font-weight: 400; font-size: 13px; color: var(--muted); }
+    #loading.choosing .track, #loading.choosing #loadingMsg { display: none; }
+
+    #busy { position: fixed; inset: 0; z-index: 15; display: none; place-items: center; pointer-events: none; }
+    body.busy #busy { display: grid; }
+    #busyMsg { padding: 12px 18px; }
+
+    #toast { position: fixed; left: 50%; top: 18px; transform: translate(-50%, -140%); z-index: 30; max-width: min(560px, calc(100vw - 32px)); padding: 12px 16px; opacity: 0; visibility: hidden; transition: transform .3s ease, opacity .3s ease; }
+    #toast.show { transform: translate(-50%, 0); opacity: 1; visibility: visible; }
+    #stats { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 6; padding: 4px 10px; font: 12px/1.4 ui-monospace, monospace; }
+
+    #editor { position: fixed; top: 16px; right: 16px; bottom: 76px; width: min(390px, calc(100vw - 32px)); z-index: 8; overflow: auto; padding: 14px 16px 18px; font-size: 13px; }
+    #editor h2 { margin: 0 0 4px; font-size: 16px; }
+    #editor h3 { margin: 18px 0 6px; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+    #editor .note { margin: 0 0 8px; color: var(--muted); }
+    #editor .row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 5px 0; }
+    #editor .lbl { width: 78px; color: var(--muted); }
+    #editor .val { color: var(--muted); font: 12px ui-monospace, monospace; }
+    #editor button { padding: 7px 10px; font-size: 12px; }
+    #editor input[type=text], #editor select { flex: 1; min-width: 0; background: rgba(0,0,0,0.35); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: 13px var(--font); }
+    body.editing #phones { display: none; }
+
+    @media (max-width: 640px) {
+      #help { display: none; }
+      #editBtn { display: none; }
+      #phones { display: none; }
+      #brand { padding: 10px 14px; }
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/three.module.min.js",
+        "three/addons/": "./vendor/three/addons/",
+        "@sparkjsdev/spark": "./vendor/spark/spark.module.min.js"
+      }
+    }
+  </script>
+</head>
+<body data-mode="model">
+  <div id="stage"></div>
+
+  <header id="brand" class="chrome glass">
+    <div class="name">Memory Windows</div>
+    <div class="site" id="siteTitle"></div>
+    <div id="mode"><span id="modeKicker"></span><span id="modeSub"></span></div>
+  </header>
+  <div id="phones" class="chrome glass"></div>
+  <div id="help" class="chrome glass"></div>
+  <div id="actions" class="chrome">
+    <button id="backBtn" class="primary"></button>
+    <button id="editBtn"></button>
+    <button id="langBtn"></button>
+    <button id="xrBtn" class="primary" hidden>Enter VR</button>
+  </div>
+  <aside id="editor" class="glass" lang="en" hidden></aside>
+
+  <div id="loading"><button id="loadLang" hidden></button><div class="box">
+    <div class="title">Memory Windows</div>
+    <div class="track"><div id="loadingBar"></div></div>
+    <div id="loadingMsg">Loading…</div>
+    <div id="chooser" hidden></div>
+  </div></div>
+  <div id="busy"><div id="busyMsg" class="glass"></div></div>
+  <div id="toast" class="glass" role="status"></div>
+  <div id="stats" class="glass" hidden></div>
+
+  <noscript>This demo needs JavaScript.</noscript>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
