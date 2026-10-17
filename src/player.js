@@ -129,8 +129,9 @@ class BufferTrack {
   }
 }
 
-// Which file to play: "hq" (6K) on desktop, 4K on the Quest, a 25 fps 4K ("mobile") on phones and
-// tablets, whose WebGL cannot take 50 fps 4K video textures. ?q=6k|4k|mobile|lite overrides.
+// Which file to play: "hq" (6K) on desktop, 4K on the Quest, and on phones and tablets the 2.9K
+// 25 fps "lite" file: iOS Safari uploads each video frame to WebGL slowly, and 4K froze the page
+// for a minute or more. ?q=6k|4k|mobile (4K at 25 fps)|lite overrides.
 function pickVideo(vcfg) {
   const ua = navigator.userAgent;
   const quest = /OculusBrowser|Quest/i.test(ua);
@@ -138,7 +139,7 @@ function pickVideo(vcfg) {
   const q = new URLSearchParams(location.search).get("q");
   const pick = {
     "6k": vcfg.hq, "4k": vcfg.sources?.[0]?.src, mobile: vcfg.mobile, lite: vcfg.lite,
-  }[q] ?? (quest ? null : touch ? vcfg.mobile : vcfg.hq);
+  }[q] ?? (quest ? null : touch ? vcfg.lite : vcfg.hq);
   return pick ? [{ src: pick }] : vcfg.sources ?? [{ src: vcfg.src }];
 }
 
