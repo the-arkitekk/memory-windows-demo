@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Memory Windows</title>
   <meta name="description" content="Walk through a Gaussian-splat model and step into VR180 recordings with ambisonic sound made at the same spot." />
   <style>
@@ -26,6 +26,7 @@
     .glass { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
 
     #brand { top: 16px; left: 16px; max-width: min(460px, calc(100vw - 32px)); padding: 14px 18px 14px 20px; }
+    #menuBtn.small { padding: 7px 12px; font-size: 12px; margin: 8px 0 2px; }
     #brand .name { font-weight: 700; letter-spacing: 0.02em; }
     #brand .site { color: var(--muted); }
     #mode { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); display: grid; gap: 2px; }
@@ -40,11 +41,17 @@
     button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
     button.primary:hover { filter: brightness(1.08); }
     button[hidden] { display: none; }
-    button.icon { padding: 10px 12px; display: inline-grid; place-items: center; }
+    button.icon { display: inline-grid; place-items: center; }
+    button.icon svg { width: 24px; height: 24px; }
     button.icon[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
-    #stick { position: fixed; left: 28px; bottom: 28px; width: 132px; height: 132px; z-index: 5; border-radius: 50%; background: var(--panel); border: 1px solid var(--line); touch-action: none; display: none; }
-    #stick i { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px; border-radius: 50%; background: rgba(255,255,255,0.28); border: 1px solid var(--line); pointer-events: none; }
-    @media (pointer: coarse) { body[data-mode="model"]:not(.in-xr):not(.editing) #stick { display: block; } #help { display: none; } }
+    #gyroBtn { position: fixed; top: max(16px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right)); width: 48px; height: 48px; padding: 0; z-index: 6; pointer-events: auto; background: var(--panel); color: var(--accent); border: 2px solid var(--accent); border-radius: 50%; }
+    #gyroBtn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+    body.has-gyro #phones { right: calc(max(16px, env(safe-area-inset-right)) + 60px); }
+    /* The walking stick scales with the screen (vmin) and sits clear of the browser bars / home indicator. */
+    #stick { --s: clamp(120px, 22vmin, 240px); position: fixed; left: max(24px, calc(env(safe-area-inset-left) + 16px)); bottom: calc(env(safe-area-inset-bottom, 0px) + max(40px, 12vh)); width: var(--s); height: var(--s); z-index: 5; border-radius: 50%; background: var(--panel); border: 1px solid var(--line); touch-action: none; display: none; }
+    #stick i { position: absolute; left: 50%; top: 50%; width: 42%; height: 42%; margin: -21% 0 0 -21%; border-radius: 50%; background: rgba(255,255,255,0.3); border: 1px solid var(--line); pointer-events: none; }
+    body.touch[data-mode="model"]:not(.in-xr):not(.editing) #stick { display: block; }
+    body.touch #help { display: none; }
     #backBtn { display: none; }
     body[data-mode="record"] #backBtn { display: inline-block; }
     #phones { top: 16px; right: 16px; max-width: 280px; padding: 10px 14px; font-size: 13px; color: var(--muted); }
@@ -108,17 +115,19 @@
 
   <header id="brand" class="chrome glass">
     <div class="name">Memory Windows</div>
+    <button id="menuBtn" class="small"></button>
     <div class="site" id="siteTitle"></div>
     <div id="mode"><span id="modeKicker"></span><span id="modeSub"></span></div>
   </header>
   <div id="stick" aria-label="Walk"><i></i></div>
   <div id="phones" class="chrome glass"></div>
   <div id="help" class="chrome glass"></div>
+  <button id="gyroBtn" class="icon chrome" hidden aria-pressed="false" aria-label="Look around">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="6" width="8" height="13" rx="1.8"/><path d="M12 16.5h.01"/><path d="M4.5 9.5a8 8 0 0 1 3-4M19.5 9.5a8 8 0 0 0-3-4"/><path d="M4.5 5.5v4h4M19.5 5.5v4h-4"/></svg>
+    </button>
   <div id="actions" class="chrome">
     <button id="backBtn" class="primary"></button>
-    <button id="gyroBtn" class="icon" hidden aria-pressed="false" aria-label="Look around">
-      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="6" width="8" height="13" rx="1.8"/><path d="M12 16.5h.01"/><path d="M4.5 9.5a8 8 0 0 1 3-4M19.5 9.5a8 8 0 0 0-3-4"/><path d="M4.5 5.5v4h4M19.5 5.5v4h-4"/></svg>
-    </button>
+    
     <button id="editBtn"></button>
     <button id="langBtn"></button>
     <button id="xrBtn" class="primary" hidden>Enter VR</button>

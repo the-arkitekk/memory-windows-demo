@@ -18,7 +18,22 @@ const _w = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _e = new THREE.Euler(0, 0, 0, "YXZ");
 
+// ?debug: on-screen log for devices without a console (iPad)
+if (params.has("debug")) {
+  const box = document.createElement("pre");
+  box.style.cssText = "position:fixed;left:8px;right:8px;top:8px;max-height:45vh;overflow:auto;z-index:99;margin:0;padding:8px;font:11px/1.35 ui-monospace,monospace;color:#9f9;background:rgba(0,0,0,.82);white-space:pre-wrap;pointer-events:none";
+  document.body.appendChild(box);
+  window.mwDebug = (m) => { box.textContent += `${((performance.now() / 1000) | 0)}s ${m}\n`; box.scrollTop = box.scrollHeight; };
+  window.addEventListener("error", (e) => window.mwDebug(`ERR ${e.message}`));
+  window.addEventListener("unhandledrejection", (e) => window.mwDebug(`REJECT ${e.reason?.message ?? e.reason}`));
+  const vt = document.createElement("video");
+  window.mwDebug(`UA ${navigator.userAgent.slice(0, 90)}`);
+  window.mwDebug(`canPlay mp4=${vt.canPlayType("video/mp4")} h264-5.1=${vt.canPlayType('video/mp4; codecs="avc1.640033"')} 5.2=${vt.canPlayType('video/mp4; codecs="avc1.640034"')} hvc1=${vt.canPlayType('video/mp4; codecs="hvc1.1.6.L153.B0"')}`);
+}
+const dbg = (m) => window.mwDebug?.(m);
+
 // ---------------------------------------------------------------- config
+let chosenModel = params.get("model"); // remembered for the Edit button only, so a reload shows the chooser again
 const MODEL_CONFIGS = { splat: "config-splat.json", mesh: "config-mesh.json" };
 // Without ?config= or ?model=, ask once which model to show (splat or textured mesh).
 async function chooseConfig() {
@@ -48,9 +63,7 @@ async function chooseConfig() {
   lang.hidden = true;
   box.hidden = true;
   loading.classList.remove("choosing");
-  const u = new URL(location.href);
-  u.searchParams.set("model", k);
-  history.replaceState(null, "", u);
+  chosenModel = k;
   return MODEL_CONFIGS[k];
 }
 
@@ -109,6 +122,16 @@ scene.add(grid);
 const fader = new Fader(camera);
 const hud = new Hud(camera);
 const audio = new AudioEngine();
+// iOS only starts audio from a tap (click / touchend): unlock it with the very first one.
+{
+  const unlock = () => {
+    window.removeEventListener("click", unlock, true);
+    window.removeEventListener("touchend", unlock, true);
+    audio.ensure();
+  };
+  window.addEventListener("click", unlock, true);
+  window.addEventListener("touchend", unlock, true);
+}
 const player = new WindowPlayer({ scene, audio });
 
 // ---------------------------------------------------------------- splat
@@ -132,7 +155,7 @@ if (isMesh) {
         splat.add(gltf.scene);
         resolve();
       },
-      (e) => e.lengthComputable && setLoading(e.loaded / e.total, t("loadingModel")),
+      (e) => setLoading(Math.min(0.95, e.loaded / (e.lengthComputable ? e.total : 14e6)), t("loadingModel")),
       reject,
     ),
   );
@@ -213,6 +236,7 @@ function recordLine(h) {
 async function enter(view, { asOverlay = false } = {}) {
   if (mode !== "model" || !view) return;
   audio.ensure(); // inside the user gesture
+  dbg(`enter ${view.data.id}`);
   mode = "transition";
   const w = view.world;
   if (!asOverlay) await fader.to(1, 300);
@@ -238,6 +262,7 @@ async function enter(view, { asOverlay = false } = {}) {
     setMode("record");
   } catch (err) {
     console.error(err);
+    dbg(`enter failed: ${err.message}`);
     toast(`${t("videoError")} (${err.message})`);
     player.close();
     current = null;
@@ -297,8 +322,9 @@ function updateDesktop(dt = 0.016) {
 }
 
 // ---------------------------------------------------------------- gyro look (phones, tablets)
+if (matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 0 || params.has("gyro")) document.body.classList.add("touch");
 const gyro = {
-  supported: (matchMedia("(pointer: coarse)").matches || params.has("gyro")) && "DeviceOrientationEvent" in window && !params.has("edit"), // ?gyro forces it for testing
+  supported: (matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 0 || params.has("gyro")) && "DeviceOrientationEvent" in window && !params.has("edit"), // ?gyro forces it for testing
   on: false, has: false, resync: true, offset: 0,
   dev: new THREE.Quaternion(), written: new THREE.Quaternion(),
 };
@@ -313,22 +339,26 @@ window.addEventListener("deviceorientation", (e) => {
   _ge.set(e.beta * DEG, e.alpha * DEG, -e.gamma * DEG, "YXZ");
   gyro.dev.setFromEuler(_ge).multiply(_gq1).multiply(_gq2.setFromAxisAngle(_zee, -screenAngle));
 });
-// Device orientation sets the view; whatever else turns the rig (a drag, a jump to a record)
-// is picked up as a new heading, so the device is always "forward" relative to that.
+// Device orientation sets heading and pitch only (the horizon stays level, whatever the screen
+// rotation). Whatever else turns the rig (a drag, a snap turn, a jump to a record) is picked up
+// as a new heading, so the device is always "forward" relative to that.
+const _gf = new THREE.Vector3();
 function applyGyro() {
-  _ge.setFromQuaternion(gyro.dev, "YXZ");
-  const devYaw = _ge.y;
+  _gf.set(0, 0, -1).applyQuaternion(gyro.dev);
+  const devYaw = Math.atan2(-_gf.x, -_gf.z);
+  const pitch = Math.asin(THREE.MathUtils.clamp(_gf.y, -1, 1));
   if (gyro.resync || gyro.written.angleTo(rig.quaternion) > 1e-4) {
     _ge.setFromQuaternion(rig.quaternion, "YXZ");
     gyro.offset = _ge.y - devYaw;
     gyro.resync = false;
   }
-  rig.quaternion.setFromAxisAngle(UP, gyro.offset).multiply(gyro.dev);
+  rig.quaternion.setFromEuler(_ge.set(pitch, devYaw + gyro.offset, 0, "YXZ"));
   gyro.written.copy(rig.quaternion);
 }
 const gyroBtn = $("gyroBtn");
 function gyroUi() {
   gyroBtn.hidden = !gyro.supported;
+  document.body.classList.toggle("has-gyro", gyro.supported);
   gyroBtn.setAttribute("aria-pressed", String(gyro.on));
   gyroBtn.title = gyroBtn.ariaLabel = t(gyro.on ? "gyroOn" : "gyroOff");
 }
@@ -362,7 +392,16 @@ gyroBtn.addEventListener("click", () => setGyro(!gyro.on));
   try { pref = localStorage.getItem("mw-gyro"); } catch {}
   if (gyro.supported && pref !== "off") {
     if (typeof DeviceOrientationEvent.requestPermission === "function") {
-      window.addEventListener("pointerup", () => setGyro(true), { once: true, capture: true });
+      {
+        // iOS only grants the permission prompt inside a tap (click / touchend)
+        const first = () => {
+          window.removeEventListener("click", first, true);
+          window.removeEventListener("touchend", first, true);
+          setGyro(true);
+        };
+        window.addEventListener("click", first, true);
+        window.addEventListener("touchend", first, true);
+      }
     } else setGyro(true);
   }
   gyroUi();
@@ -400,12 +439,14 @@ const stickEnd = (e) => {
 stickEl.addEventListener("pointerup", stickEnd);
 stickEl.addEventListener("pointercancel", stickEnd);
 function walkWithStick(dt) {
-  if (Math.hypot(stick.x, stick.y) < 0.15) return;
+  // forward/back walks; left/right turns continuously, faster the further the knob is pushed
+  const turn = Math.abs(stick.x) < 0.15 ? 0 : stick.x;
+  if (turn) rotateRigAroundHead(-turn * 100 * DEG * dt);
+  if (Math.abs(stick.y) < 0.15) return;
   camera.getWorldDirection(_v);
   _v.y = 0;
   _v.normalize();
-  _w.crossVectors(_v, UP);
-  rig.position.addScaledVector(_v, -stick.y * 1.3 * dt).addScaledVector(_w, stick.x * 1.3 * dt);
+  rig.position.addScaledVector(_v, -stick.y * 1.3 * dt);
 }
 
 const raycaster = new THREE.Raycaster();
@@ -424,6 +465,7 @@ renderer.domElement.addEventListener("pointerup", (e) => {
   if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6 || performance.now() - d.t > 400) return;
   pointer.ndc.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
   updatePointerHover(); // a touch tap has no earlier hover
+  dbg(`tap mode=${mode} hover=${pointer.hover?.data.id ?? "none"}`);
   if (mode === "model" && pointer.hover) enter(pointer.hover);
 });
 // Standing inside a hotspot's target volume never counts as pointing at it from outside.
@@ -651,16 +693,23 @@ function updateTexts() {
   $("backBtn").textContent = t("back");
   $("langBtn").textContent = t("language");
   gyroUi();
+  $("menuBtn").textContent = t("menu");
   $("editBtn").textContent = t(params.has("edit") ? "exitEdit" : "edit");
   xrBtn.textContent = renderer.xr.isPresenting ? t("exitVR") : t("enterVR");
   $("phones").textContent = t("headphones");
   document.documentElement.lang = LANG;
 }
 $("backBtn").addEventListener("click", () => exit());
+$("menuBtn").addEventListener("click", () => {
+  const u = new URL(location.pathname, location.origin); // back to the start screen (model choice)
+  if (params.get("lang")) u.searchParams.set("lang", params.get("lang"));
+  location.href = u;
+});
 $("editBtn").addEventListener("click", () => {
   const u = new URL(location.href);
   if (params.has("edit")) u.searchParams.delete("edit");
   else u.searchParams.set("edit", "1");
+  if (chosenModel && !u.searchParams.has("config")) u.searchParams.set("model", chosenModel);
   location.href = u; // the editor loads at start-up, so reload with/without ?edit
 });
 $("langBtn").addEventListener("click", () => {

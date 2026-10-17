@@ -48,6 +48,7 @@ function waitFor(el, okEvent, ms) {
     el.addEventListener(okEvent, onOk, { once: true });
     el.addEventListener("error", onErr, true); // capture: <source> errors do not bubble
     if (el.readyState >= 2 && okEvent === "loadeddata") done(resolve);
+    else if (el.readyState >= 1 && okEvent === "loadedmetadata") done(resolve);
   });
 }
 
@@ -76,6 +77,58 @@ function eyeMesh(texture, eye, stereo, projection, radius = 20) {
 
 // Plays one recorded "memory window": a VR180 (or 360) video around the head, with an
 // optional separate ambisonic track decoded binaurally and rotated with the head.
+// A decoded sound that offers the bits of the <audio> API the player uses (currentTime, play, pause).
+class BufferTrack {
+  constructor(ctx, buffer) {
+    this.ctx = ctx;
+    this.buffer = buffer;
+    this.out = ctx.createGain();
+    this.offset = 0;
+    this.t0 = 0;
+    this.src = null;
+  }
+  get playing() {
+    return !!this.src;
+  }
+  get currentTime() {
+    return this.src ? this.offset + (this.ctx.currentTime - this.t0) : this.offset;
+  }
+  set currentTime(t) {
+    const was = this.playing;
+    this.#stop();
+    this.offset = Math.max(0, t);
+    if (was) this.#start();
+  }
+  play() {
+    if (!this.src) this.#start();
+    return Promise.resolve();
+  }
+  pause() {
+    if (!this.src) return;
+    this.offset = this.currentTime;
+    this.#stop();
+  }
+  #start() {
+    if (this.offset >= this.buffer.duration) return;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.buffer;
+    src.connect(this.out);
+    src.start(0, this.offset);
+    this.t0 = this.ctx.currentTime;
+    this.src = src;
+  }
+  #stop() {
+    if (!this.src) return;
+    try { this.src.stop(); } catch {}
+    this.src.disconnect();
+    this.src = null;
+  }
+  close() {
+    this.#stop();
+    this.out.disconnect();
+  }
+}
+
 export class WindowPlayer {
   constructor({ scene, audio }) {
     this.audio = audio;
@@ -97,7 +150,8 @@ export class WindowPlayer {
     v.setAttribute("playsinline", "");
     v.preload = "auto";
     v.loop = !!vcfg.loop;
-    const sources = vcfg.sources ?? [{ src: vcfg.src }];
+    // ?lite plays a lighter file (e.g. 2.9K @ 25 fps) for devices that cannot keep up with 4K
+    const sources = vcfg.lite && new URLSearchParams(location.search).has("lite") ? [{ src: vcfg.lite }] : vcfg.sources ?? [{ src: vcfg.src }];
     for (const s of sources) {
       const el = document.createElement("source");
       el.src = s.src;
@@ -112,6 +166,13 @@ export class WindowPlayer {
     const active = { h, v, a: null, nodes: [], meshes: [] };
     this.active = active;
 
+    // iOS Safari ignores preload and loads nothing until play(): start the muted video and pause
+    // it again (muted + playsinline may autoplay), so that "loadeddata" fires.
+    for (const ev of ["loadstart", "loadedmetadata", "loadeddata", "canplay", "playing", "stalled", "suspend", "error", "ended"])
+      v.addEventListener(ev, () => window.mwDebug?.(`video ${ev} rs=${v.readyState} err=${v.error?.code ?? "-"} ${v.videoWidth}x${v.videoHeight}`), true);
+    window.mwDebug?.(`open video ${sources[0]?.src} separateAudio=${separateAudio} muted=${v.muted}`);
+    v.load();
+    if (v.muted) v.play().then(() => v.pause()).catch(() => {});
     await waitFor(v, "loadeddata", 30000);
 
     const tex = new THREE.VideoTexture(v);
@@ -131,19 +192,19 @@ export class WindowPlayer {
     if (separateAudio || ambixInVideo) {
       await this.audio.ensure();
       const ctx = this.audio.ctx;
-      let mediaEl = v;
+      let src;
       if (separateAudio) {
-        const a = document.createElement("audio");
-        a.crossOrigin = "anonymous";
-        a.preload = "auto";
-        a.src = acfg.src;
-        a.style.display = "none";
-        document.body.appendChild(a);
-        active.a = a;
-        mediaEl = a;
-        await waitFor(a, "loadeddata", 30000);
+        // Decode the file and play it from the Web Audio graph. iOS only lets an <audio> element
+        // start from a tap, and our start comes later (when the video begins), so it stayed silent.
+        const res = await fetch(acfg.src);
+        if (!res.ok) throw new Error(`audio ${res.status}`);
+        const buffer = await ctx.decodeAudioData(await res.arrayBuffer());
+        window.mwDebug?.(`audio decoded ${buffer.numberOfChannels}ch ${buffer.sampleRate}Hz ${buffer.duration.toFixed(1)}s ctx=${ctx.state}`);
+        active.a = new BufferTrack(ctx, buffer);
+        src = active.a.out;
+      } else {
+        src = ctx.createMediaElementSource(v);
       }
-      const src = ctx.createMediaElementSource(mediaEl);
       const gain = ctx.createGain();
       gain.gain.value = acfg.gain ?? 1;
       src.connect(gain);
@@ -206,8 +267,9 @@ export class WindowPlayer {
     const act = this.active;
     if (!act) return;
     this.active = null;
+    act.a?.close?.();
     for (const el of [act.v, act.a]) {
-      if (!el) continue;
+      if (!el || el instanceof BufferTrack) continue;
       el.pause();
       el.removeAttribute("src");
       el.querySelectorAll?.("source").forEach((s) => s.remove());

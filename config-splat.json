@@ -52,9 +52,10 @@
         "sources": [
           {
             "src": "media/study-4k.mp4",
-            "type": "video/mp4; codecs=\"avc1.640034\""
+            "type": "video/mp4"
           }
         ],
+        "lite": "media/study-2k.mp4",
         "projection": 180,
         "stereo": "sbs",
         "loop": false
