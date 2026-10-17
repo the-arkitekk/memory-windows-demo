@@ -18,7 +18,8 @@
       0,
       0
     ],
-    "scale": 1
+    "scale": 1,
+    "mobileUrl": "media/room-mobile.spz"
   },
   "start": {
     "position": [

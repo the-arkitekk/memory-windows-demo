@@ -138,7 +138,12 @@ const player = new WindowPlayer({ scene, audio });
 
 // ---------------------------------------------------------------- splat
 setLoading(0, t("loadingModel"));
-const isMesh = /\.(glb|gltf)(\?|$)/i.test(config.splat.url);
+// Phones and tablets (not the Quest) get the lighter copy of the model: iOS Safari ran out of GPU
+// memory with the full one. ?full / ?mobile force either way.
+const isTouchDevice = (navigator.maxTouchPoints > 0 || matchMedia("(pointer: coarse)").matches) && !/OculusBrowser|Quest/i.test(navigator.userAgent);
+const modelUrl = config.splat.mobileUrl && (params.has("mobile") || (isTouchDevice && !params.has("full"))) ? config.splat.mobileUrl : config.splat.url;
+dbg(`model ${modelUrl}`);
+const isMesh = /\.(glb|gltf)(\?|$)/i.test(modelUrl);
 let splat;
 if (isMesh) {
   // Textured-mesh alternative to a splat (baked scan textures, drawn unlit).
@@ -146,7 +151,7 @@ if (isMesh) {
   splat = new THREE.Group();
   splat.initialized = new Promise((resolve, reject) =>
     new GLTFLoader().load(
-      config.splat.url,
+      modelUrl,
       (gltf) => {
         gltf.scene.traverse((o) => {
           if (!o.isMesh) return;
@@ -163,7 +168,7 @@ if (isMesh) {
   );
 } else {
   splat = new SplatMesh({
-    url: config.splat.url,
+    url: modelUrl,
     lod: config.splat.lod ?? true,
     onProgress: (e) => e.lengthComputable && setLoading(e.loaded / e.total, t("loadingModel")),
   });
