@@ -644,7 +644,7 @@ renderer.setAnimationLoop(() => {
       v.requestVideoFrameCallback(tick);
     }
     if (now - dbgLast > 2000) {
-      window.mwDebug(`fps=${(dbgFrames / ((now - dbgLast) / 1000)).toFixed(1)} mode=${mode}${v ? ` ct=${v.currentTime.toFixed(2)} paused=${v.paused} rs=${v.readyState} vframes=${dbgVf} dec=${v.getVideoPlaybackQuality?.().totalVideoFrames}/drop${v.getVideoPlaybackQuality?.().droppedVideoFrames} buf=${v.buffered.length ? v.buffered.end(v.buffered.length - 1).toFixed(1) : 0} net=${v.networkState}` : ""}`);
+      window.mwDebug(`fps=${(dbgFrames / ((now - dbgLast) / 1000)).toFixed(1)} mode=${mode}${v ? ` ct=${v.currentTime.toFixed(2)} paused=${v.paused} rs=${v.readyState} vframes=${dbgVf} dec=${v.getVideoPlaybackQuality?.().totalVideoFrames}/drop${v.getVideoPlaybackQuality?.().droppedVideoFrames} buf=${v.buffered.length ? v.buffered.end(v.buffered.length - 1).toFixed(1) : 0} net=${v.networkState} snd=${player.active?.a ? player.active.a.currentTime.toFixed(2) + (player.active.a.playing ? ">" : "|") : "-"} resync=${player.active?.resyncs ?? 0}` : ""}`);
       dbgFrames = 0;
       dbgLast = now;
     }

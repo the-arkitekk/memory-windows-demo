@@ -214,12 +214,6 @@ export class WindowPlayer {
       : Promise.resolve();
 
     v.addEventListener("ended", () => this.onEnded?.(h));
-    v.addEventListener("waiting", () => active.a?.pause());
-    v.addEventListener("playing", () => {
-      if (!active.a) return;
-      active.a.currentTime = v.currentTime;
-      active.a.play().catch(() => {});
-    });
     this.group.visible = true;
     return active;
   }
@@ -254,11 +248,7 @@ export class WindowPlayer {
       gain.connect(this.audio.master);
     }
     active.nodes.push(src, gain);
-    // joined late (the video is already running): catch up with it
-    if (active.a && !active.v.paused) {
-      active.a.currentTime = active.v.currentTime;
-      active.a.play();
-    }
+    // update() starts the sound and keeps it in step with the picture
   }
 
   async play() {
@@ -292,10 +282,24 @@ export class WindowPlayer {
       _m3.setFromMatrix4(_m4.makeRotationFromQuaternion(_qb));
       this.audio.foa.setRotationMatrix3(_m3.elements);
     }
-    if (act.a && !act.v.paused && now - this.lastSync > 250) {
+    if (act.a && now - this.lastSync > 100) {
+      // The sound follows the picture: it plays only while the video clock is really advancing
+      // (not while the video is buffering, seeking or still warming up) and is re-aligned when
+      // it drifts. Dragging it back to a frozen video clock made it loop the first fraction of a second.
       this.lastSync = now;
-      const drift = act.a.currentTime - act.v.currentTime;
-      if (Math.abs(drift) > 0.06) act.a.currentTime = act.v.currentTime;
+      const v = act.v;
+      const vt = v.currentTime;
+      const advancing = vt !== act.lastVt;
+      act.lastVt = vt;
+      if (v.paused || v.ended || v.seeking || v.readyState < 3 || !advancing) {
+        if (act.a.playing) act.a.pause();
+      } else if (!act.a.playing) {
+        act.a.currentTime = vt;
+        act.a.play();
+      } else if (Math.abs(act.a.currentTime - vt) > 0.12) {
+        act.a.currentTime = vt;
+        act.resyncs = (act.resyncs ?? 0) + 1;
+      }
     }
   }
 
