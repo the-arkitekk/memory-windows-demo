@@ -173,7 +173,9 @@ export class WindowPlayer {
     const separateAudio = !!acfg.src;
     const ambixInVideo = !separateAudio && acfg.format === "ambix";
     v.muted = separateAudio || acfg.format === "none";
-    v.style.display = "none";
+    // Not display:none: iOS Safari stops presenting frames of a video that is not rendered, so the
+    // texture stayed black. Keep it in the layout, 2 px wide, practically invisible, behind the page.
+    v.style.cssText = "position:fixed;left:0;top:0;width:2px;height:1px;opacity:0.01;pointer-events:none;z-index:-1";
     document.body.appendChild(v);
     const active = { h, v, a: null, nodes: [], meshes: [] };
     this.active = active;

@@ -292,6 +292,7 @@ player.onEnded = () => exit();
 
 function setModelVisible(on) {
   splat.visible = on;
+  spark.visible = on; // no splat sorting or drawing while a record plays
   for (const v of views) v.group.visible = on;
 }
 
