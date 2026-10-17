@@ -375,7 +375,6 @@ async function setGyro(on) {
   }
   gyro.on = on;
   gyro.resync = true;
-  try { localStorage.setItem("mw-gyro", on ? "on" : "off"); } catch {}
   gyroUi();
   if (on) {
     setTimeout(() => {
@@ -388,22 +387,7 @@ async function setGyro(on) {
 }
 gyroBtn.addEventListener("click", () => setGyro(!gyro.on));
 {
-  let pref = null;
-  try { pref = localStorage.getItem("mw-gyro"); } catch {}
-  if (gyro.supported && pref !== "off") {
-    if (typeof DeviceOrientationEvent.requestPermission === "function") {
-      {
-        // iOS only grants the permission prompt inside a tap (click / touchend)
-        const first = () => {
-          window.removeEventListener("click", first, true);
-          window.removeEventListener("touchend", first, true);
-          setGyro(true);
-        };
-        window.addEventListener("click", first, true);
-        window.addEventListener("touchend", first, true);
-      }
-    } else setGyro(true);
-  }
+  // Starts with touch look; the icon button switches to gyro on demand (iOS asks for motion access then).
   gyroUi();
 }
 

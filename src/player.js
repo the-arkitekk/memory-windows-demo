@@ -150,8 +150,7 @@ export class WindowPlayer {
     v.setAttribute("playsinline", "");
     v.preload = "auto";
     v.loop = !!vcfg.loop;
-    // ?lite plays a lighter file (e.g. 2.9K @ 25 fps) for devices that cannot keep up with 4K
-    const sources = vcfg.lite && new URLSearchParams(location.search).has("lite") ? [{ src: vcfg.lite }] : vcfg.sources ?? [{ src: vcfg.src }];
+    const sources = vcfg.sources ?? [{ src: vcfg.src }];
     for (const s of sources) {
       const el = document.createElement("source");
       el.src = s.src;

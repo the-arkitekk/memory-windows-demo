@@ -51,11 +51,10 @@
       "video": {
         "sources": [
           {
-            "src": "media/study-6k.mp4",
+            "src": "media/study-4k.mp4",
             "type": "video/mp4"
           }
         ],
-        "lite": "media/study-2k.mp4",
         "projection": 180,
         "stereo": "sbs",
         "loop": false
