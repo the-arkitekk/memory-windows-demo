@@ -129,6 +129,19 @@ class BufferTrack {
   }
 }
 
+// Which file to play: "hq" (6K) on desktop, 4K on the Quest, a 25 fps 4K ("mobile") on phones and
+// tablets, whose WebGL cannot take 50 fps 4K video textures. ?q=6k|4k|mobile|lite overrides.
+function pickVideo(vcfg) {
+  const ua = navigator.userAgent;
+  const quest = /OculusBrowser|Quest/i.test(ua);
+  const touch = !quest && navigator.maxTouchPoints > 0;
+  const q = new URLSearchParams(location.search).get("q");
+  const pick = {
+    "6k": vcfg.hq, "4k": vcfg.sources?.[0]?.src, mobile: vcfg.mobile, lite: vcfg.lite,
+  }[q] ?? (quest ? null : touch ? vcfg.mobile : vcfg.hq);
+  return pick ? [{ src: pick }] : vcfg.sources ?? [{ src: vcfg.src }];
+}
+
 export class WindowPlayer {
   constructor({ scene, audio }) {
     this.audio = audio;
@@ -150,11 +163,7 @@ export class WindowPlayer {
     v.setAttribute("playsinline", "");
     v.preload = "auto";
     v.loop = !!vcfg.loop;
-    // The sharper "hq" file (6K) is for desktop browsers only; phones, tablets and the Quest use the 4K
-    // sources. ?q=6k or ?q=4k overrides the choice.
-    const q = new URLSearchParams(location.search).get("q");
-    const desktop = matchMedia("(pointer: fine)").matches && navigator.maxTouchPoints === 0 && !/OculusBrowser|Quest/i.test(navigator.userAgent);
-    const sources = vcfg.hq && (q === "6k" || (q !== "4k" && desktop)) ? [{ src: vcfg.hq }] : vcfg.sources ?? [{ src: vcfg.src }];
+    const sources = pickVideo(vcfg);
     for (const s of sources) {
       const el = document.createElement("source");
       el.src = s.src;

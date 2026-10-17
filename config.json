@@ -58,7 +58,9 @@
         "projection": 180,
         "stereo": "sbs",
         "loop": false,
-        "hq": "media/study-6k.mp4"
+        "hq": "media/study-6k.mp4",
+        "mobile": "media/study-4k25.mp4",
+        "lite": "media/study-2k.mp4"
       },
       "audio": {
         "src": "media/study-ambix.wav",

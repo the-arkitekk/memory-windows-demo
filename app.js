@@ -125,6 +125,8 @@ const audio = new AudioEngine();
 // iOS only starts audio from a tap (click / touchend): unlock it with the very first one.
 {
   const unlock = () => {
+    // iOS: Web Audio follows the silent switch unless the page declares itself as media playback
+    try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch {}
     window.removeEventListener("click", unlock, true);
     window.removeEventListener("touchend", unlock, true);
     audio.ensure();
@@ -236,7 +238,8 @@ function recordLine(h) {
 async function enter(view, { asOverlay = false } = {}) {
   if (mode !== "model" || !view) return;
   audio.ensure(); // inside the user gesture
-  dbg(`enter ${view.data.id}`);
+  try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch {}
+  dbg(`enter ${view.data.id} audioSession=${navigator.audioSession?.type ?? "n/a"}`);
   mode = "transition";
   const w = view.world;
   if (!asOverlay) await fader.to(1, 300);
