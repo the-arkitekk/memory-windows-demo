@@ -129,9 +129,8 @@ class BufferTrack {
   }
 }
 
-// Which file to play: "hq" (6K) on desktop, 4K on the Quest, and on phones and tablets the 2.9K
-// 25 fps "lite" file: iOS Safari uploads each video frame to WebGL slowly, and 4K froze the page
-// for a minute or more. ?q=6k|4k|mobile (4K at 25 fps)|lite overrides.
+// Which file to play: "hq" (6K) on desktop, 4K elsewhere (Quest, phones, tablets).
+// ?q=6k|4k|mobile (4K at 25 fps)|lite (2.9K at 25 fps) overrides.
 function pickVideo(vcfg) {
   const ua = navigator.userAgent;
   const quest = /OculusBrowser|Quest/i.test(ua);
@@ -139,7 +138,7 @@ function pickVideo(vcfg) {
   const q = new URLSearchParams(location.search).get("q");
   const pick = {
     "6k": vcfg.hq, "4k": vcfg.sources?.[0]?.src, mobile: vcfg.mobile, lite: vcfg.lite,
-  }[q] ?? (quest ? null : touch ? vcfg.lite : vcfg.hq);
+  }[q] ?? (quest || touch ? null : vcfg.hq);
   return pick ? [{ src: pick }] : vcfg.sources ?? [{ src: vcfg.src }];
 }
 
@@ -159,12 +158,13 @@ export class WindowPlayer {
     const vcfg = h.video ?? {};
     const acfg = h.audio ?? {};
     const v = document.createElement("video");
-    v.crossOrigin = "anonymous";
     v.playsInline = true;
     v.setAttribute("playsinline", "");
     v.preload = "auto";
     v.loop = !!vcfg.loop;
     const sources = pickVideo(vcfg);
+    // crossOrigin only for files from another site (it also makes WebKit load media the slow way)
+    if (sources.some((s) => new URL(s.src, location.href).origin !== location.origin)) v.crossOrigin = "anonymous";
     for (const s of sources) {
       const el = document.createElement("source");
       el.src = s.src;
@@ -181,14 +181,14 @@ export class WindowPlayer {
     const active = { h, v, a: null, nodes: [], meshes: [] };
     this.active = active;
 
-    // iOS Safari ignores preload and loads nothing until play(): start the muted video and pause
-    // it again (muted + playsinline may autoplay), so that "loadeddata" fires.
-    for (const ev of ["loadstart", "loadedmetadata", "loadeddata", "canplay", "playing", "stalled", "suspend", "error", "ended"])
+    for (const ev of ["loadstart", "loadedmetadata", "loadeddata", "canplay", "playing", "waiting", "stalled", "suspend", "error", "ended"])
       v.addEventListener(ev, () => window.mwDebug?.(`video ${ev} rs=${v.readyState} err=${v.error?.code ?? "-"} ${v.videoWidth}x${v.videoHeight}`), true);
     window.mwDebug?.(`open video ${sources[0]?.src} separateAudio=${separateAudio} muted=${v.muted}`);
+    // iOS Safari ignores preload, so only the metadata is certain to arrive before play(). Do NOT
+    // "prime" the video with a play()/pause() and a seek to 0 afterwards: in Safari that sequence
+    // left the decoder stuck after ~50 frames (the picture froze while the clock kept running).
     v.load();
-    if (v.muted) v.play().then(() => v.pause()).catch(() => {});
-    await waitFor(v, "loadeddata", 30000);
+    await waitFor(v, "loadedmetadata", 30000);
 
     const tex = new THREE.VideoTexture(v);
     tex.colorSpace = THREE.SRGBColorSpace;
@@ -204,34 +204,14 @@ export class WindowPlayer {
       this.group.add(m);
     }
 
-    if (separateAudio || ambixInVideo) {
-      await this.audio.ensure();
-      const ctx = this.audio.ctx;
-      let src;
-      if (separateAudio) {
-        // Decode the file and play it from the Web Audio graph. iOS only lets an <audio> element
-        // start from a tap, and our start comes later (when the video begins), so it stayed silent.
-        const res = await fetch(acfg.src);
-        if (!res.ok) throw new Error(`audio ${res.status}`);
-        const buffer = await ctx.decodeAudioData(await res.arrayBuffer());
-        window.mwDebug?.(`audio decoded ${buffer.numberOfChannels}ch ${buffer.sampleRate}Hz ${buffer.duration.toFixed(1)}s ctx=${ctx.state}`);
-        active.a = new BufferTrack(ctx, buffer);
-        src = active.a.out;
-      } else {
-        src = ctx.createMediaElementSource(v);
-      }
-      const gain = ctx.createGain();
-      gain.gain.value = acfg.gain ?? 1;
-      src.connect(gain);
-      if (acfg.format === "ambix") {
-        this.audio.foa.setChannelMap(acfg.channelMap ?? [0, 1, 2, 3]);
-        this.audio.foa.setRenderingMode("ambisonic");
-        gain.connect(this.audio.foa.input);
-      } else {
-        gain.connect(this.audio.master);
-      }
-      active.nodes.push(src, gain);
-    }
+    // Audio is attached on its own: a slow or blocked audio start (a suspended AudioContext, Omnitone
+    // still loading, iOS interruptions) must never keep the picture from starting.
+    active.audioReady = separateAudio || ambixInVideo
+      ? this.#attachAudio(active, acfg, separateAudio).catch((err) => {
+          console.error(err);
+          window.mwDebug?.(`audio failed: ${err.message}`);
+        })
+      : Promise.resolve();
 
     v.addEventListener("ended", () => this.onEnded?.(h));
     v.addEventListener("waiting", () => active.a?.pause());
@@ -244,12 +224,53 @@ export class WindowPlayer {
     return active;
   }
 
+  async #attachAudio(active, acfg, separateAudio) {
+    const t0 = performance.now();
+    await this.audio.ensure();
+    window.mwDebug?.(`audio engine ready ${((performance.now() - t0) / 1000).toFixed(1)}s ctx=${this.audio.ctx.state}`);
+    const ctx = this.audio.ctx;
+    let src;
+    if (separateAudio) {
+      // Decode the file and play it from the Web Audio graph. iOS only lets an <audio> element
+      // start from a tap, and our start comes later (when the video begins), so it stayed silent.
+      const res = await fetch(acfg.src);
+      if (!res.ok) throw new Error(`audio ${res.status}`);
+      const buffer = await ctx.decodeAudioData(await res.arrayBuffer());
+      window.mwDebug?.(`audio decoded ${buffer.numberOfChannels}ch ${buffer.sampleRate}Hz ${buffer.duration.toFixed(1)}s ctx=${ctx.state}`);
+      if (this.active !== active) return; // closed meanwhile
+      active.a = new BufferTrack(ctx, buffer);
+      src = active.a.out;
+    } else {
+      src = ctx.createMediaElementSource(active.v);
+    }
+    const gain = ctx.createGain();
+    gain.gain.value = acfg.gain ?? 1;
+    src.connect(gain);
+    if (acfg.format === "ambix") {
+      this.audio.foa.setChannelMap(acfg.channelMap ?? [0, 1, 2, 3]);
+      this.audio.foa.setRenderingMode("ambisonic");
+      gain.connect(this.audio.foa.input);
+    } else {
+      gain.connect(this.audio.master);
+    }
+    active.nodes.push(src, gain);
+    // joined late (the video is already running): catch up with it
+    if (active.a && !active.v.paused) {
+      active.a.currentTime = active.v.currentTime;
+      active.a.play();
+    }
+  }
+
   async play() {
     const act = this.active;
     if (!act) return;
-    act.v.currentTime = 0;
+    // Give the sound a moment to be ready so it starts with the picture, but never wait long.
+    await Promise.race([act.audioReady, new Promise((r) => setTimeout(r, 1500))]);
+    if (this.active !== act) return;
+    if (act.v.currentTime > 0.05) act.v.currentTime = 0;
     if (act.a) act.a.currentTime = 0;
-    if (this.audio.ctx && this.audio.ctx.state !== "running") await this.audio.ctx.resume().catch(() => {});
+    // resume() can stay pending (no tap yet, iOS interruption): do not wait for it
+    if (this.audio.ctx && this.audio.ctx.state !== "running") this.audio.ctx.resume().catch(() => {});
     await act.v.play();
   }
 

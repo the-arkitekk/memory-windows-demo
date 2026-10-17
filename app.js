@@ -23,7 +23,13 @@ if (params.has("debug")) {
   const box = document.createElement("pre");
   box.style.cssText = "position:fixed;left:8px;right:8px;top:8px;max-height:45vh;overflow:auto;z-index:99;margin:0;padding:8px;font:11px/1.35 ui-monospace,monospace;color:#9f9;background:rgba(0,0,0,.82);white-space:pre-wrap;pointer-events:none";
   document.body.appendChild(box);
-  window.mwDebug = (m) => { box.textContent += `${((performance.now() / 1000) | 0)}s ${m}\n`; box.scrollTop = box.scrollHeight; };
+  const logTo = params.get("logto"); // ?logto=http://localhost:3001/ also POSTs every line (for desktop tests)
+  window.mwDebug = (m) => {
+    const line = `${(performance.now() / 1000).toFixed(1)}s ${m}`;
+    box.textContent += line + "\n";
+    box.scrollTop = box.scrollHeight;
+    if (logTo) fetch(logTo, { method: "POST", body: line, mode: "no-cors" }).catch(() => {});
+  };
   window.addEventListener("error", (e) => window.mwDebug(`ERR ${e.message}`));
   window.addEventListener("unhandledrejection", (e) => window.mwDebug(`REJECT ${e.reason?.message ?? e.reason}`));
   const vt = document.createElement("video");
@@ -178,6 +184,7 @@ splat.initialized
   .then(() => {
     setLoading(1, t("preparingModel"));
     setTimeout(() => $("loading").classList.add("done"), 400);
+    if (params.has("autoenter")) setTimeout(() => enter(views[0]), 2500); // test hook
   })
   .catch((err) => fatal(`${t("loadError")} ${config.splat.url} — ${err.message ?? err}`));
 
@@ -448,6 +455,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
   pointer.ndc.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
 });
 renderer.domElement.addEventListener("pointerdown", (e) => {
+  if (audio.ctx && audio.ctx.state !== "running") audio.ctx.resume().catch(() => {});
   pointer.ndc.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
   pointer.down = { x: e.clientX, y: e.clientY, t: performance.now() };
   audio.ensure();
@@ -623,8 +631,24 @@ function nearestView(maxDist) {
 const stats = params.has("stats") ? { frames: 0, t0: performance.now(), el: $("stats") } : null;
 if (stats) stats.el.hidden = false;
 let last = performance.now();
+let dbgFrames = 0, dbgLast = performance.now(), dbgVf = 0, dbgVfEl = null;
 renderer.setAnimationLoop(() => {
   const now = performance.now();
+  if (window.mwDebug) {
+    dbgFrames++;
+    const v = player.active?.v;
+    if (v && v !== dbgVfEl && v.requestVideoFrameCallback) { // count real video frames presented
+      dbgVfEl = v;
+      dbgVf = 0;
+      const tick = () => { dbgVf++; v.requestVideoFrameCallback(tick); };
+      v.requestVideoFrameCallback(tick);
+    }
+    if (now - dbgLast > 2000) {
+      window.mwDebug(`fps=${(dbgFrames / ((now - dbgLast) / 1000)).toFixed(1)} mode=${mode}${v ? ` ct=${v.currentTime.toFixed(2)} paused=${v.paused} rs=${v.readyState} vframes=${dbgVf} dec=${v.getVideoPlaybackQuality?.().totalVideoFrames}/drop${v.getVideoPlaybackQuality?.().droppedVideoFrames} buf=${v.buffered.length ? v.buffered.end(v.buffered.length - 1).toFixed(1) : 0} net=${v.networkState}` : ""}`);
+      dbgFrames = 0;
+      dbgLast = now;
+    }
+  }
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
   const xr = renderer.xr.isPresenting;
