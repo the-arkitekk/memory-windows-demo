@@ -150,7 +150,11 @@ export class WindowPlayer {
     v.setAttribute("playsinline", "");
     v.preload = "auto";
     v.loop = !!vcfg.loop;
-    const sources = vcfg.sources ?? [{ src: vcfg.src }];
+    // The sharper "hq" file (6K) is for desktop browsers only; phones, tablets and the Quest use the 4K
+    // sources. ?q=6k or ?q=4k overrides the choice.
+    const q = new URLSearchParams(location.search).get("q");
+    const desktop = matchMedia("(pointer: fine)").matches && navigator.maxTouchPoints === 0 && !/OculusBrowser|Quest/i.test(navigator.userAgent);
+    const sources = vcfg.hq && (q === "6k" || (q !== "4k" && desktop)) ? [{ src: vcfg.hq }] : vcfg.sources ?? [{ src: vcfg.src }];
     for (const s of sources) {
       const el = document.createElement("source");
       el.src = s.src;
