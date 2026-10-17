@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { SparkRenderer, SplatMesh, SparkControls } from "@sparkjsdev/spark";
 import { t, L, LANG, setLang } from "./src/i18n.js";
 import { HotspotView } from "./src/hotspots.js";
-import { WindowPlayer, AudioEngine } from "./src/player.js";
+import { WindowPlayer, AudioEngine, pickVideo } from "./src/player.js";
 import { Fader, Hud } from "./src/text.js";
 
 const $ = (id) => document.getElementById(id);
@@ -39,6 +39,7 @@ if (params.has("debug")) {
 const dbg = (m) => window.mwDebug?.(m);
 
 // ---------------------------------------------------------------- config
+let currentConfigFile = "config.json";
 let chosenModel = params.get("model"); // remembered for the Edit button only, so a reload shows the chooser again
 const MODEL_CONFIGS = { splat: "config-splat.json", mesh: "config-mesh.json" };
 // Without ?config= or ?model=, ask once which model to show (splat or textured mesh).
@@ -75,7 +76,8 @@ async function chooseConfig() {
 
 let config;
 try {
-  const res = await fetch(await chooseConfig(), { cache: "no-cache" });
+  currentConfigFile = await chooseConfig();
+  const res = await fetch(currentConfigFile, { cache: "no-cache" });
   config = await res.json();
 } catch (err) {
   fatal(`config.json: ${err.message}`);
@@ -147,7 +149,9 @@ setLoading(0, t("loadingModel"));
 // Phones and tablets (not the Quest) get the lighter copy of the model: iOS Safari ran out of GPU
 // memory with the full one. ?full / ?mobile force either way.
 const isTouchDevice = (navigator.maxTouchPoints > 0 || matchMedia("(pointer: coarse)").matches) && !/OculusBrowser|Quest/i.test(navigator.userAgent);
-const modelUrl = config.splat.mobileUrl && (params.has("mobile") || (isTouchDevice && !params.has("full"))) ? config.splat.mobileUrl : config.splat.url;
+const modelUrlFor = (cfg) =>
+  cfg.splat?.mobileUrl && (params.has("mobile") || (isTouchDevice && !params.has("full"))) ? cfg.splat.mobileUrl : cfg.splat?.url;
+const modelUrl = modelUrlFor(config);
 dbg(`model ${modelUrl}`);
 const isMesh = /\.(glb|gltf)(\?|$)/i.test(modelUrl);
 let splat;
@@ -184,10 +188,61 @@ splat.initialized
   .then(() => {
     setLoading(1, t("preparingModel"));
     setTimeout(() => $("loading").classList.add("done"), 400);
-    setTimeout(() => views.forEach((v) => player.prefetchAudio(v.data)), 1500); // sound ready before the video starts
+    setTimeout(() => (swControlled() ? precacheForOffline() : views.forEach((v) => player.prefetchAudio(v.data))), 1500);
     if (params.has("autoenter")) setTimeout(() => enter(views[0]), 2500); // test hook
   })
   .catch((err) => fatal(`${t("loadError")} ${config.splat.url} — ${err.message ?? err}`));
+
+// ---------------------------------------------------------------- offline cache (service worker)
+// The service worker keeps the app and its media on the device, so that a demo does not depend on the
+// network: opened once (model, sound and video are fetched in that order), it then works offline.
+const swSupported = "serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost");
+const swControlled = () => !!navigator.serviceWorker?.controller;
+if (swSupported && !params.has("edit") && !params.has("nosw")) {
+  navigator.serviceWorker.register("sw.js").catch((err) => dbg(`sw failed: ${err.message}`));
+  navigator.serviceWorker.addEventListener("message", (e) => {
+    const m = e.data;
+    if (m?.type !== "precache") return;
+    const chip = $("offline");
+    if (m.error) dbg(`precache ${m.error}`);
+    if (m.finished) {
+      chip.hidden = false;
+      chip.classList.toggle("ready", !m.failed);
+      chip.textContent = m.failed ? t("offlinePartial") : t("offlineReady");
+      dbg(`precache finished ${m.done}/${m.total} failed=${m.failed}`);
+    } else {
+      chip.hidden = false;
+      chip.classList.remove("ready");
+      chip.textContent = `${t("offlineSaving")} ${Math.round(((m.done + (m.fraction ?? 0)) / m.total) * 100)}%`;
+    }
+  });
+}
+async function precacheForOffline() {
+  const nav = navigator.connection;
+  if (!swSupported || params.has("nosw") || nav?.saveData || /^(slow-2g|2g|3g)$/.test(nav?.effectiveType ?? "")) return;
+  try {
+    // current model first, then its sound and video, then the other model
+    const cfgs = [config];
+    for (const file of Object.values(MODEL_CONFIGS)) {
+      if (file === currentConfigFile) continue;
+      try { cfgs.push(await (await fetch(file)).json()); } catch {}
+    }
+    const urls = [];
+    for (const c of cfgs) {
+      urls.push(modelUrlFor(c));
+      for (const h of c.hotspots ?? []) {
+        if (h.audio?.src) urls.push(h.audio.src);
+        if (h.video) urls.push(pickVideo(h.video)[0].src);
+      }
+    }
+    const list = [...new Set(urls.filter(Boolean))];
+    const reg = await navigator.serviceWorker.ready;
+    reg.active.postMessage({ type: "precache", urls: list });
+    dbg(`precache ${list.length} files`);
+  } catch (err) {
+    dbg(`precache failed: ${err.message}`);
+  }
+}
 
 // ---------------------------------------------------------------- hotspots ("memory windows")
 let views = [];

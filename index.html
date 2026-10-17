@@ -30,6 +30,8 @@
     #brand .name { font-weight: 700; letter-spacing: 0.02em; }
     #brand .site { color: var(--muted); }
     #mode { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); display: grid; gap: 2px; }
+    #offline { margin-top: 8px; font-size: 12px; color: var(--muted); }
+    #offline.ready { color: #8fd18f; }
     #modeKicker { font-size: 12px; font-weight: 700; letter-spacing: 0.14em; color: var(--accent); }
     body[data-mode="record"] #modeKicker::before { content: "● "; color: #ff5a4f; }
     #modeSub { color: var(--muted); font-size: 13px; }
@@ -118,6 +120,7 @@
     <button id="menuBtn" class="small"></button>
     <div class="site" id="siteTitle"></div>
     <div id="mode"><span id="modeKicker"></span><span id="modeSub"></span></div>
+    <div id="offline" hidden></div>
   </header>
   <div id="stick" aria-label="Walk"><i></i></div>
   <div id="phones" class="chrome glass"></div>

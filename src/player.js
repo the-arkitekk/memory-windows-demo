@@ -131,7 +131,7 @@ class BufferTrack {
 
 // Which file to play: "hq" (6K) on desktop, 4K elsewhere (Quest, phones, tablets).
 // ?q=6k|4k|mobile (4K at 25 fps)|lite (2.9K at 25 fps) overrides.
-function pickVideo(vcfg) {
+export function pickVideo(vcfg) {
   const ua = navigator.userAgent;
   const quest = /OculusBrowser|Quest/i.test(ua);
   const touch = !quest && navigator.maxTouchPoints > 0;
