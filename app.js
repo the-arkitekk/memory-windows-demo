@@ -184,6 +184,7 @@ splat.initialized
   .then(() => {
     setLoading(1, t("preparingModel"));
     setTimeout(() => $("loading").classList.add("done"), 400);
+    setTimeout(() => views.forEach((v) => player.prefetchAudio(v.data)), 1500); // sound ready before the video starts
     if (params.has("autoenter")) setTimeout(() => enter(views[0]), 2500); // test hook
   })
   .catch((err) => fatal(`${t("loadError")} ${config.splat.url} — ${err.message ?? err}`));

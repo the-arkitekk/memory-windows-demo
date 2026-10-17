@@ -151,6 +151,20 @@ export class WindowPlayer {
     this.active = null;
     this.onEnded = null;
     this.lastSync = 0;
+    this.audioBytes = new Map(); // src -> Promise<ArrayBuffer>, fetched ahead of time
+  }
+
+  // Fetch a record's sound file while the visitor is still walking around, so that it does not have to
+  // compete with the video for bandwidth when the record starts (it arrived 5 s late otherwise).
+  prefetchAudio(h) {
+    const src = h.audio?.src;
+    if (!src || this.audioBytes.has(src)) return;
+    const p = fetch(src).then((r) => {
+      if (!r.ok) throw new Error(`audio ${r.status}`);
+      return r.arrayBuffer();
+    });
+    p.catch(() => this.audioBytes.delete(src)); // retry on demand
+    this.audioBytes.set(src, p);
   }
 
   async open(h) {
@@ -227,9 +241,9 @@ export class WindowPlayer {
     if (separateAudio) {
       // Decode the file and play it from the Web Audio graph. iOS only lets an <audio> element
       // start from a tap, and our start comes later (when the video begins), so it stayed silent.
-      const res = await fetch(acfg.src);
-      if (!res.ok) throw new Error(`audio ${res.status}`);
-      const buffer = await ctx.decodeAudioData(await res.arrayBuffer());
+      this.prefetchAudio({ audio: acfg });
+      const bytes = await this.audioBytes.get(acfg.src);
+      const buffer = await ctx.decodeAudioData(bytes.slice(0)); // decode a copy: the bytes are reused next time
       window.mwDebug?.(`audio decoded ${buffer.numberOfChannels}ch ${buffer.sampleRate}Hz ${buffer.duration.toFixed(1)}s ctx=${ctx.state}`);
       if (this.active !== active) return; // closed meanwhile
       active.a = new BufferTrack(ctx, buffer);
