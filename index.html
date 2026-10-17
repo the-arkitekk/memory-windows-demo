@@ -40,6 +40,11 @@
     button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
     button.primary:hover { filter: brightness(1.08); }
     button[hidden] { display: none; }
+    button.icon { padding: 10px 12px; display: inline-grid; place-items: center; }
+    button.icon[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+    #stick { position: fixed; left: 28px; bottom: 28px; width: 132px; height: 132px; z-index: 5; border-radius: 50%; background: var(--panel); border: 1px solid var(--line); touch-action: none; display: none; }
+    #stick i { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px; border-radius: 50%; background: rgba(255,255,255,0.28); border: 1px solid var(--line); pointer-events: none; }
+    @media (pointer: coarse) { body[data-mode="model"]:not(.in-xr):not(.editing) #stick { display: block; } #help { display: none; } }
     #backBtn { display: none; }
     body[data-mode="record"] #backBtn { display: inline-block; }
     #phones { top: 16px; right: 16px; max-width: 280px; padding: 10px 14px; font-size: 13px; color: var(--muted); }
@@ -106,10 +111,14 @@
     <div class="site" id="siteTitle"></div>
     <div id="mode"><span id="modeKicker"></span><span id="modeSub"></span></div>
   </header>
+  <div id="stick" aria-label="Walk"><i></i></div>
   <div id="phones" class="chrome glass"></div>
   <div id="help" class="chrome glass"></div>
   <div id="actions" class="chrome">
     <button id="backBtn" class="primary"></button>
+    <button id="gyroBtn" class="icon" hidden aria-pressed="false" aria-label="Look around">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="6" width="8" height="13" rx="1.8"/><path d="M12 16.5h.01"/><path d="M4.5 9.5a8 8 0 0 1 3-4M19.5 9.5a8 8 0 0 0-3-4"/><path d="M4.5 5.5v4h4M19.5 5.5v4h-4"/></svg>
+    </button>
     <button id="editBtn"></button>
     <button id="langBtn"></button>
     <button id="xrBtn" class="primary" hidden>Enter VR</button>

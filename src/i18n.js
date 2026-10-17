@@ -30,6 +30,9 @@ const STRINGS = {
     language: "TR",
     edit: "Edit",
     exitEdit: "Exit edit",
+    gyroOn: "Looking by device motion. Tap to look by touch.",
+    gyroOff: "Looking by touch. Tap to look by moving your device.",
+    gyroDenied: "Motion sensors are blocked. Allow motion access for this site in the browser settings.",
   },
   tr: {
     chooseTitle: "Odayı nasıl görmek istersiniz?",
@@ -61,6 +64,9 @@ const STRINGS = {
     language: "EN",
     edit: "Düzenle",
     exitEdit: "Düzenlemeden çık",
+    gyroOn: "Cihazı hareket ettirerek bakıyorsunuz. Dokunarak bakmak için basın.",
+    gyroOff: "Dokunarak bakıyorsunuz. Cihazı çevirerek bakmak için basın.",
+    gyroDenied: "Hareket sensörleri engelli. Tarayıcı ayarlarından bu site için hareket erişimine izin verin.",
   },
 };
 

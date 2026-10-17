@@ -277,17 +277,135 @@ controls.fpsMovement.keycodeMoveMapping = {
 controls.fpsMovement.keycodeRotateMapping = {};
 controls.pointerControls.pointerRollScale = 0;
 
-function updateDesktop() {
+function updateDesktop(dt = 0.016) {
   const typing = document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
   controls.fpsMovement.enable = !typing;
   _v.copy(rig.position);
   controls.update(rig);
   if (mode !== "model") rig.position.copy(_v); // in a record you can only look around
-  else rig.position.y = config.floorY + config.eyeHeight;
-  _e.setFromQuaternion(rig.quaternion, "YXZ");
-  _e.z = 0;
-  _e.x = THREE.MathUtils.clamp(_e.x, -1.35, 1.35);
-  rig.quaternion.setFromEuler(_e);
+  else {
+    if (stick.active) walkWithStick(dt);
+    rig.position.y = config.floorY + config.eyeHeight;
+  }
+  if (gyro.on && gyro.has) applyGyro();
+  else {
+    _e.setFromQuaternion(rig.quaternion, "YXZ");
+    _e.z = 0;
+    _e.x = THREE.MathUtils.clamp(_e.x, -1.35, 1.35);
+    rig.quaternion.setFromEuler(_e);
+  }
+}
+
+// ---------------------------------------------------------------- gyro look (phones, tablets)
+const gyro = {
+  supported: (matchMedia("(pointer: coarse)").matches || params.has("gyro")) && "DeviceOrientationEvent" in window && !params.has("edit"), // ?gyro forces it for testing
+  on: false, has: false, resync: true, offset: 0,
+  dev: new THREE.Quaternion(), written: new THREE.Quaternion(),
+};
+const _ge = new THREE.Euler();
+const _gq1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+const _gq2 = new THREE.Quaternion();
+const _zee = new THREE.Vector3(0, 0, 1);
+window.addEventListener("deviceorientation", (e) => {
+  if (e.alpha == null || e.beta == null || e.gamma == null) return;
+  gyro.has = true;
+  const screenAngle = (screen.orientation?.angle ?? window.orientation ?? 0) * DEG;
+  _ge.set(e.beta * DEG, e.alpha * DEG, -e.gamma * DEG, "YXZ");
+  gyro.dev.setFromEuler(_ge).multiply(_gq1).multiply(_gq2.setFromAxisAngle(_zee, -screenAngle));
+});
+// Device orientation sets the view; whatever else turns the rig (a drag, a jump to a record)
+// is picked up as a new heading, so the device is always "forward" relative to that.
+function applyGyro() {
+  _ge.setFromQuaternion(gyro.dev, "YXZ");
+  const devYaw = _ge.y;
+  if (gyro.resync || gyro.written.angleTo(rig.quaternion) > 1e-4) {
+    _ge.setFromQuaternion(rig.quaternion, "YXZ");
+    gyro.offset = _ge.y - devYaw;
+    gyro.resync = false;
+  }
+  rig.quaternion.setFromAxisAngle(UP, gyro.offset).multiply(gyro.dev);
+  gyro.written.copy(rig.quaternion);
+}
+const gyroBtn = $("gyroBtn");
+function gyroUi() {
+  gyroBtn.hidden = !gyro.supported;
+  gyroBtn.setAttribute("aria-pressed", String(gyro.on));
+  gyroBtn.title = gyroBtn.ariaLabel = t(gyro.on ? "gyroOn" : "gyroOff");
+}
+async function setGyro(on) {
+  if (!gyro.supported) return;
+  if (on && typeof DeviceOrientationEvent.requestPermission === "function") {
+    // iOS: must be asked from a tap
+    try {
+      if ((await DeviceOrientationEvent.requestPermission()) !== "granted") throw new Error("denied");
+    } catch {
+      toast(t("gyroDenied"));
+      on = false;
+    }
+  }
+  gyro.on = on;
+  gyro.resync = true;
+  try { localStorage.setItem("mw-gyro", on ? "on" : "off"); } catch {}
+  gyroUi();
+  if (on) {
+    setTimeout(() => {
+      if (!gyro.has) { // no sensor data (e.g. a touch laptop): fall back to touch look
+        gyro.on = gyro.supported = false;
+        gyroUi();
+      }
+    }, 2000);
+  }
+}
+gyroBtn.addEventListener("click", () => setGyro(!gyro.on));
+{
+  let pref = null;
+  try { pref = localStorage.getItem("mw-gyro"); } catch {}
+  if (gyro.supported && pref !== "off") {
+    if (typeof DeviceOrientationEvent.requestPermission === "function") {
+      window.addEventListener("pointerup", () => setGyro(true), { once: true, capture: true });
+    } else setGyro(true);
+  }
+  gyroUi();
+}
+
+// ---------------------------------------------------------------- on-screen walking stick (touch)
+const stick = { active: false, x: 0, y: 0, id: null };
+const stickEl = $("stick");
+function stickMove(e) {
+  const r = stickEl.getBoundingClientRect();
+  const R = r.width / 2;
+  let dx = e.clientX - (r.left + R);
+  let dy = e.clientY - (r.top + R);
+  const len = Math.hypot(dx, dy);
+  if (len > R) [dx, dy] = [(dx / len) * R, (dy / len) * R];
+  stick.x = dx / R;
+  stick.y = dy / R;
+  stickEl.firstElementChild.style.transform = `translate(${dx}px, ${dy}px)`;
+}
+stickEl.addEventListener("pointerdown", (e) => {
+  stick.id = e.pointerId;
+  stick.active = true;
+  stickEl.setPointerCapture(e.pointerId);
+  audio.ensure();
+  stickMove(e);
+});
+stickEl.addEventListener("pointermove", (e) => e.pointerId === stick.id && stickMove(e));
+const stickEnd = (e) => {
+  if (e.pointerId !== stick.id) return;
+  stick.active = false;
+  stick.x = stick.y = 0;
+  stick.id = null;
+  stickEl.firstElementChild.style.transform = "";
+};
+stickEl.addEventListener("pointerup", stickEnd);
+stickEl.addEventListener("pointercancel", stickEnd);
+function walkWithStick(dt) {
+  if (Math.hypot(stick.x, stick.y) < 0.15) return;
+  camera.getWorldDirection(_v);
+  _v.y = 0;
+  _v.normalize();
+  _w.crossVectors(_v, UP);
+  rig.position.addScaledVector(_v, -stick.y * 1.3 * dt).addScaledVector(_w, stick.x * 1.3 * dt);
 }
 
 const raycaster = new THREE.Raycaster();
@@ -296,6 +414,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
   pointer.ndc.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
 });
 renderer.domElement.addEventListener("pointerdown", (e) => {
+  pointer.ndc.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
   pointer.down = { x: e.clientX, y: e.clientY, t: performance.now() };
   audio.ensure();
 });
@@ -303,6 +422,8 @@ renderer.domElement.addEventListener("pointerup", (e) => {
   const d = pointer.down;
   pointer.down = null;
   if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6 || performance.now() - d.t > 400) return;
+  pointer.ndc.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+  updatePointerHover(); // a touch tap has no earlier hover
   if (mode === "model" && pointer.hover) enter(pointer.hover);
 });
 // Standing inside a hotspot's target volume never counts as pointing at it from outside.
@@ -476,7 +597,7 @@ renderer.setAnimationLoop(() => {
     updateXrLocomotion(dt);
     updateControllerHover();
   } else {
-    updateDesktop();
+    updateDesktop(dt);
     updatePointerHover();
   }
 
@@ -529,6 +650,7 @@ function updateTexts() {
   $("help").textContent = rec ? t("helpRecord") : t("helpModel");
   $("backBtn").textContent = t("back");
   $("langBtn").textContent = t("language");
+  gyroUi();
   $("editBtn").textContent = t(params.has("edit") ? "exitEdit" : "edit");
   xrBtn.textContent = renderer.xr.isPresenting ? t("exitVR") : t("enterVR");
   $("phones").textContent = t("headphones");
