@@ -295,7 +295,7 @@ function setMode(m) {
   if (m === "model") hud.show({ kicker: t("modeModel"), title: L(config.title), sub: t("modeModelSub") }, 4);
   if (m === "record" && current) {
     const h = current.data;
-    hud.show({ kicker: t("modeRecord"), title: L(h.title), sub: recordLine(h), hint: t("headphones") }, 5);
+    hud.show({ kicker: t("modeRecord"), title: L(h.title), sub: recordLine(h), hint: renderer.xr.isPresenting ? `${t("headphones")} · ${t("exitHintVR")}` : t("headphones") }, 5);
   }
 }
 

@@ -55,7 +55,8 @@
     body.touch[data-mode="model"]:not(.in-xr):not(.editing) #stick { display: block; }
     body.touch #help { display: none; }
     #backBtn { display: none; }
-    body[data-mode="record"] #backBtn { display: inline-block; }
+    /* While a video plays: a large, centred exit button, clear of the browser bars and home indicator */
+    body[data-mode="record"] #backBtn { display: inline-block; position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + max(32px, 9vh)); z-index: 7; padding: 15px 28px; font-size: 16px; box-shadow: 0 6px 24px rgba(0,0,0,.45); }
     #phones { top: 16px; right: 16px; max-width: 280px; padding: 10px 14px; font-size: 13px; color: var(--muted); }
     body.in-xr .chrome:not(#actions) { opacity: 0.4; }
     body.in-xr #editBtn { display: none; }
